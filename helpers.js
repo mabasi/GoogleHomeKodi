@@ -10,8 +10,8 @@ const VIDEO_PLAYER = 1;
 // Set option for fuzzy search
 const fuzzySearchOptions = {
     caseSensitive: false, // Don't care about case whenever we're searching titles by speech
-    includeScore: false, // Don't need the score, the first item has the highest probability
     shouldSort: true, // Should be true, since we want result[0] to be the item with the highest probability
+    include: ['score', 'matchedIndices'], // Don't need the score, the first item has the highest probability
     threshold: 0.4, // 0 = perfect match, 1 = match all..
     location: 0,
     distance: 100,
@@ -30,11 +30,13 @@ const tryActivateTv = (request, response) => {
 };
 
 const playMovie = (request, movie) => {
-    return request.kodi.Player.Open({ // eslint-disable-line new-cap
-        item: {
-            movieid: movie.movieid
-        }
-    });
+    if (!(movie === null)) {
+        return request.kodi.Player.Open({ // eslint-disable-line new-cap
+            item: {
+                movieid: movie.movieid
+            }
+        });
+    }
 };
 
 const resumeMovie = (request, movie) => {
@@ -60,7 +62,7 @@ const selectRandomItem = (items) => {
     return Promise.resolve(randomItem);
 };
 
-const fuzzySearchBestMatch = (items, needle) => {
+const fuzzySearchAllMatch = (items, needle) => {
     let fuse = new Fuse(items, fuzzySearchOptions);
     let searchResult = fuse.search(needle);
 
@@ -68,9 +70,16 @@ const fuzzySearchBestMatch = (items, needle) => {
         throw new Error(`No fuzzy match for '${needle}'`);
     }
 
-    let bestMatch = searchResult[0];
+    return searchResult;
+//    return Promise.resolve(searchResult);
+};
+
+const fuzzySearchBestMatch = (items, needle) => {
+
+    let bestMatch = fuzzySearchAllMatch(items,needle)[0].item;
 
     console.log(`best fuzzy match for '${needle}' is:`, bestMatch);
+
     return Promise.resolve(bestMatch);
 };
 
@@ -140,14 +149,37 @@ const getFilteredMovies = (request, param) => {
         });
 };
 
-const kodiFindMovie = (movieTitle, Kodi) => {
-    return Kodi.VideoLibrary.GetMovies() // eslint-disable-line new-cap
+const kodiFindMovie = (movieTitle, Kodi, request) => {
+    let param = {
+        properties: ['playcount','year','director'],    
+        sort: {
+            order: 'descending',
+            method: 'playcount'
+        }
+        // order the movies list in descending order of playcount, so that fuzzy match will prefer the more frequently played version of any movies with the same matching score (e.g. same title)
+    };
+
+    return Kodi.VideoLibrary.GetMovies(param) // eslint-disable-line new-cap
         .then((movies) => {
             if (!(movies && movies.result && movies.result.movies && movies.result.movies.length > 0)) {
                 throw new Error('Your kodi library does not contain a single movie!');
             }
 
-            return fuzzySearchBestMatch(movies.result.movies, movieTitle);
+            let searchResult = fuzzySearchAllMatch(movies.result.movies, movieTitle);
+            if (searchResult[1].score < (searchResult[0].score + request.config.fuzzysearch.minimumlead)){
+                Kodi.Playlist.Clear({playlistid:1});
+                Kodi.GUI.ActivateWindow({window:"videoplaylist"});
+                let i = 0;
+                while (searchResult[i+1].score < (searchResult[0].score + request.config.fuzzysearch.minimumlead)) {
+                    Kodi.Playlist.Add({playlistid:1,item:{movieid:searchResult[i+1].item.movieid}});
+                    i = i + 1;
+                }
+                return null;    
+                console.log('No best match found');
+            } else {
+                console.log('found: ', searchResult[0].item);
+                return searchResult[0].item;
+            }
         });
 };
 
@@ -812,7 +844,7 @@ exports.kodiPlayMovie = (request, response) => {
     let Kodi = request.kodi;
 
     console.log(`Movie request received to play "${movieTitle}"`);
-    return kodiFindMovie(movieTitle, Kodi)
+    return kodiFindMovie(movieTitle, Kodi, request)
         .then((movie) => playMovie(request, movie));
 };
 
@@ -823,7 +855,7 @@ exports.kodiResumeMovie = (request, response) => {
     let Kodi = request.kodi;
 
     console.log(`Movie request received to resume "${movieTitle}"`);
-    return kodiFindMovie(movieTitle, Kodi)
+    return kodiFindMovie(movieTitle, Kodi, request)
         .then((movie) => resumeMovie(request, movie));
 };
 

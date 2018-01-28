@@ -31,5 +31,10 @@ exports.globalConfig = {
     // YOUR_LOCAL_LISTENING_PORT
     listenerPort: '8099',
     // YOUR_YOUTUBE_API_KEY
-    youtubeKey: 'AIzaSyBYKxhPJHYUnzYcdOAv14Gmq-43_W9_79w'
+    youtubeKey: 'AIzaSyBYKxhPJHYUnzYcdOAv14Gmq-43_W9_79w',
+    // fuzzy search options
+    fuzzysearch: {
+        // if best search score is not at least minimumlead better than the second best, show all movies within minimumlead as a playlist (set to 0 to only show same matches, or -1 to disable)
+        minimumlead: '0.1'
+    }
 };
